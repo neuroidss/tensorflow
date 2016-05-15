@@ -18,8 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow.python.platform
-
 import numpy as np
 import tensorflow as tf
 
@@ -75,6 +73,14 @@ class ArgMaxTest(tf.test.TestCase):
   def testInt64(self):
     self._testBasic(np.int64)
     self._testDim(np.int64)
+
+  def testEmpty(self):
+    with self.test_session():
+      for op in tf.argmin, tf.argmax:
+        with self.assertRaisesOpError(
+            r"Reduction axis 0 is empty in shape \[0\]"):
+          op([], 0).eval()
+
 
 if __name__ == "__main__":
   tf.test.main()

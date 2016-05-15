@@ -15,10 +15,16 @@ limitations under the License.
 
 #include "tensorflow/core/platform/test_benchmark.h"
 
+#include <cstdio>
+#include <cstdlib>
+
+#include <algorithm>
+#include <vector>
 #include "tensorflow/core/lib/strings/str_util.h"
+#include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/regexp.h"
-#include "tensorflow/core/public/env.h"
+#include "tensorflow/core/util/reporter.h"
 
 namespace tensorflow {
 namespace testing {
@@ -33,7 +39,7 @@ static Env* env;
 
 Benchmark::Benchmark(const char* name, void (*fn)(int))
     : name_(name), num_args_(0), fn0_(fn) {
-  args_.push_back(-1);
+  args_.push_back(std::make_pair(-1, -1));
   Register();
 }
 
@@ -42,9 +48,20 @@ Benchmark::Benchmark(const char* name, void (*fn)(int, int))
   Register();
 }
 
+Benchmark::Benchmark(const char* name, void (*fn)(int, int, int))
+    : name_(name), num_args_(2), fn2_(fn) {
+  Register();
+}
+
 Benchmark* Benchmark::Arg(int x) {
   CHECK_EQ(num_args_, 1);
-  args_.push_back(x);
+  args_.push_back(std::make_pair(x, -1));
+  return this;
+}
+
+Benchmark* Benchmark::ArgPair(int x, int y) {
+  CHECK_EQ(num_args_, 2);
+  args_.push_back(std::make_pair(x, y));
   return this;
 }
 
@@ -71,8 +88,11 @@ void Benchmark::Run(const char* pattern) {
     name = b->name_;
     for (auto arg : b->args_) {
       name.resize(b->name_.size());
-      if (arg >= 0) {
-        strings::StrAppend(&name, "/", arg);
+      if (arg.first >= 0) {
+        strings::StrAppend(&name, "/", arg.first);
+        if (arg.second >= 0) {
+          strings::StrAppend(&name, "/", arg.second);
+        }
       }
       if (RE2::PartialMatch(name, pattern)) {
         width = std::max<int>(width, name.size());
@@ -86,8 +106,11 @@ void Benchmark::Run(const char* pattern) {
     name = b->name_;
     for (auto arg : b->args_) {
       name.resize(b->name_.size());
-      if (arg >= 0) {
-        strings::StrAppend(&name, "/", arg);
+      if (arg.first >= 0) {
+        strings::StrAppend(&name, "/", arg.first);
+        if (arg.second >= 0) {
+          strings::StrAppend(&name, "/", arg.second);
+        }
       }
       if (!RE2::PartialMatch(name, pattern)) {
         continue;
@@ -95,7 +118,7 @@ void Benchmark::Run(const char* pattern) {
 
       int iters;
       double seconds;
-      b->Run(arg, &iters, &seconds);
+      b->Run(arg.first, arg.second, &iters, &seconds);
 
       char buf[100];
       std::string full_label = label;
@@ -111,6 +134,24 @@ void Benchmark::Run(const char* pattern) {
       }
       printf("%-*s %10.0f %10d\t%s\n", width, name.c_str(),
              seconds * 1e9 / iters, iters, full_label.c_str());
+
+      TestReporter reporter(name);
+      Status s = reporter.Initialize();
+      if (!s.ok()) {
+        LOG(ERROR) << s.ToString();
+        exit(EXIT_FAILURE);
+      }
+      s = reporter.Benchmark(iters, 0.0, seconds,
+                             items_processed * 1e-6 / seconds);
+      if (!s.ok()) {
+        LOG(ERROR) << s.ToString();
+        exit(EXIT_FAILURE);
+      }
+      s = reporter.Close();
+      if (!s.ok()) {
+        LOG(ERROR) << s.ToString();
+        exit(EXIT_FAILURE);
+      }
     }
   }
 }
@@ -120,7 +161,7 @@ void Benchmark::Register() {
   all_benchmarks->push_back(this);
 }
 
-void Benchmark::Run(int arg, int* run_count, double* run_seconds) {
+void Benchmark::Run(int arg1, int arg2, int* run_count, double* run_seconds) {
   env = Env::Default();
   static const int64 kMinIters = 100;
   static const int64 kMaxIters = 1000000000;
@@ -134,8 +175,10 @@ void Benchmark::Run(int arg, int* run_count, double* run_seconds) {
     label.clear();
     if (fn0_) {
       (*fn0_)(iters);
+    } else if (fn1_) {
+      (*fn1_)(iters, arg1);
     } else {
-      (*fn1_)(iters, arg);
+      (*fn2_)(iters, arg1, arg2);
     }
     StopTiming();
     const double seconds = accum_time * 1e-6;

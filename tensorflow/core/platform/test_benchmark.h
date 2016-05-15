@@ -17,10 +17,14 @@ limitations under the License.
 #ifndef TENSORFLOW_PLATFORM_TEST_BENCHMARK_H_
 #define TENSORFLOW_PLATFORM_TEST_BENCHMARK_H_
 
-#include "tensorflow/core/platform/port.h"
+#include <utility>
+#include <vector>
+#include "tensorflow/core/platform/macros.h"
+#include "tensorflow/core/platform/platform.h"
+#include "tensorflow/core/platform/types.h"
 
 #if defined(PLATFORM_GOOGLE)
-#include "testing/base/public/benchmark.h"
+#include "tensorflow/core/platform/google/build_config/benchmark.h"
 
 #else
 #define BENCHMARK(n)                                            \
@@ -36,26 +40,32 @@ namespace tensorflow {
 namespace testing {
 
 #if defined(PLATFORM_GOOGLE)
+
 using ::testing::Benchmark;
+
 #else
+
 class Benchmark {
  public:
   Benchmark(const char* name, void (*fn)(int));
   Benchmark(const char* name, void (*fn)(int, int));
+  Benchmark(const char* name, void (*fn)(int, int, int));
 
   Benchmark* Arg(int x);
+  Benchmark* ArgPair(int x, int y);
   Benchmark* Range(int lo, int hi);
   static void Run(const char* pattern);
 
  private:
   string name_;
   int num_args_;
-  std::vector<int> args_;
+  std::vector<std::pair<int, int>> args_;
   void (*fn0_)(int) = nullptr;
   void (*fn1_)(int, int) = nullptr;
+  void (*fn2_)(int, int, int) = nullptr;
 
   void Register();
-  void Run(int arg, int* run_count, double* run_seconds);
+  void Run(int arg1, int arg2, int* run_count, double* run_seconds);
 };
 #endif
 

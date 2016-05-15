@@ -15,9 +15,9 @@ limitations under the License.
 
 #include "tensorflow/core/framework/types.h"
 
-#include <gtest/gtest.h>
 #include "tensorflow/core/framework/type_traits.h"
 #include "tensorflow/core/platform/protobuf.h"
+#include "tensorflow/core/platform/test.h"
 
 namespace tensorflow {
 namespace {
@@ -123,9 +123,20 @@ TEST(TypesTest, QuantizedTypes) {
 
   EXPECT_FALSE(DataTypeIsQuantized(DT_INT8));
   EXPECT_FALSE(DataTypeIsQuantized(DT_UINT8));
+  EXPECT_FALSE(DataTypeIsQuantized(DT_UINT16));
   EXPECT_FALSE(DataTypeIsQuantized(DT_INT16));
   EXPECT_FALSE(DataTypeIsQuantized(DT_INT32));
   EXPECT_FALSE(DataTypeIsQuantized(DT_BFLOAT16));
+}
+
+TEST(TypesTest, IntegerTypes) {
+  for (auto dt : AllTypes()) {
+    const string name = DataTypeString(dt);
+    const StringPiece n = name;
+    EXPECT_EQ(DataTypeIsInteger(dt),
+              n.starts_with("int") || n.starts_with("uint"))
+        << "DataTypeInteger failed for " << name;
+  }
 }
 
 }  // namespace

@@ -22,8 +22,6 @@ import sys
 import threading
 import time
 
-import tensorflow.python.platform
-
 import tensorflow as tf
 
 
@@ -41,6 +39,12 @@ def RaiseInN(coord, n_secs, ex, report_exception):
       coord.request_stop(e)
     else:
       coord.request_stop(sys.exc_info())
+
+
+def RaiseInNUsingContextHandler(coord, n_secs, ex):
+  with coord.stop_on_exception():
+    time.sleep(n_secs)
+    raise ex
 
 
 def SleepABit(n_secs):
@@ -111,6 +115,64 @@ class CoordinatorTest(tf.test.TestCase):
       t.start()
     with self.assertRaisesRegexp(RuntimeError, "First"):
       coord.join(threads)
+
+  def testJoinIgnoresOutOfRange(self):
+    coord = tf.train.Coordinator()
+    threads = [
+        threading.Thread(target=RaiseInN,
+                         args=(coord, 0.01,
+                               tf.errors.OutOfRangeError(None, None, "First"),
+                               True))
+        ]
+    for t in threads:
+      t.start()
+    coord.join(threads)
+
+  def testJoinRaiseReportExceptionUsingHandler(self):
+    coord = tf.train.Coordinator()
+    threads = [
+        threading.Thread(target=RaiseInNUsingContextHandler,
+                         args=(coord, 0.01, RuntimeError("First"))),
+        threading.Thread(target=RaiseInNUsingContextHandler,
+                         args=(coord, 0.02, RuntimeError("Too late")))]
+    for t in threads:
+      t.start()
+    with self.assertRaisesRegexp(RuntimeError, "First"):
+      coord.join(threads)
+
+
+def _StopAt0(coord, n):
+  if n[0] == 0:
+    coord.request_stop()
+  else:
+    n[0] -= 1
+
+
+class LooperTest(tf.test.TestCase):
+
+  def testTargetArgs(self):
+    n = [3]
+    coord = tf.train.Coordinator()
+    thread = tf.train.LooperThread.loop(coord, 0, target=_StopAt0,
+                                        args=(coord, n))
+    coord.join([thread])
+    self.assertEqual(0, n[0])
+
+  def testTargetKwargs(self):
+    n = [3]
+    coord = tf.train.Coordinator()
+    thread = tf.train.LooperThread.loop(coord, 0, target=_StopAt0,
+                                        kwargs={"coord": coord, "n": n})
+    coord.join([thread])
+    self.assertEqual(0, n[0])
+
+  def testTargetMixedArgs(self):
+    n = [3]
+    coord = tf.train.Coordinator()
+    thread = tf.train.LooperThread.loop(coord, 0, target=_StopAt0,
+                                        args=(coord,), kwargs={"n": n})
+    coord.join([thread])
+    self.assertEqual(0, n[0])
 
 
 if __name__ == "__main__":

@@ -24,9 +24,13 @@ from tensorflow.python.framework import ops
 from tensorflow.python.framework import tensor_shape
 from tensorflow.python.framework import tensor_util
 from tensorflow.python.framework import random_seed
+from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import common_shapes
+from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import gen_random_ops
+from tensorflow.python.ops import logging_ops
 from tensorflow.python.ops import math_ops
+# go/tf-wildcard-import
 # pylint: disable=wildcard-import
 from tensorflow.python.ops.gen_random_ops import *
 # pylint: enable=wildcard-import
@@ -209,6 +213,85 @@ def random_shuffle(value, seed=None, name=None):
                                         name=name)
 
 
+def random_crop(value, size, seed=None, name=None):
+  """Randomly crops a tensor to a given size.
+
+  Slices a shape `size` portion out of `value` at a uniformly chosen offset.
+  Requires `value.shape >= size`.
+
+  If a dimension should not be cropped, pass the full size of that dimension.
+  For example, RGB images can be cropped with
+  `size = [crop_height, crop_width, 3]`.
+
+  Args:
+    value: Input tensor to crop.
+    size: 1-D tensor with size the rank of `value`.
+    seed: Python integer. Used to create a random seed. See
+      [`set_random_seed`](../../api_docs/python/constant_op.md#set_random_seed)
+      for behavior.
+    name: A name for this operation (optional).
+
+  Returns:
+    A cropped tensor of the same rank as `value` and shape `size`.
+  """
+  # TODO(shlens): Implement edge case to guarantee output size dimensions.
+  # If size > value.shape, zero pad the result so that it always has shape
+  # exactly size.
+  with ops.op_scope([value, size], name, "random_crop") as name:
+    value = ops.convert_to_tensor(value, name="value")
+    size = ops.convert_to_tensor(size, dtype=dtypes.int32, name="size")
+    shape = array_ops.shape(value)
+    check = logging_ops.Assert(math_ops.reduce_all(shape >= size),
+                               ["Need value.shape >= size, got ", shape, size])
+    shape = control_flow_ops.with_dependencies([check], shape)
+    limit = shape - size + 1
+    offset = random_uniform(array_ops.shape(shape), dtype=size.dtype,
+                            maxval=size.dtype.max, seed=seed) % limit
+    return array_ops.slice(value, offset, size, name=name)
+
+
+def multinomial(logits, num_samples, seed=None, name=None):
+  """Draws samples from a multinomial distribution.
+
+  Example:
+
+    samples = tf.multinomial(tf.log([[0.5, 0.5]]), 10)
+    # samples has shape [1, 10], where each value is either 0 or 1.
+
+    samples = tf.multinomial([[1, -1, -1]], 10)
+    # samples is equivalent to tf.zeros([1, 10], dtype=tf.int64).
+
+  Args:
+    logits: 2-D Tensor with shape `[batch_size, num_classes]`.  Each slice
+      `[i, :]` represents the unnormalized log probabilities for all classes.
+    num_samples: 0-D.  Number of independent samples to draw for each row slice.
+    seed: A Python integer. Used to create a random seed for the distribution.
+      See
+      [`set_random_seed`](../../api_docs/python/constant_op.md#set_random_seed)
+      for behavior.
+    name: Optional name for the operation.
+
+  Returns:
+    The drawn samples of shape `[batch_size, num_samples]`.
+  """
+  with ops.op_scope([logits], name, "multinomial"):
+    logits = ops.convert_to_tensor(logits, name="logits")
+    seed1, seed2 = random_seed.get_seed(seed)
+    return gen_random_ops.multinomial(logits, num_samples, seed=seed1,
+                                      seed2=seed2)
+
+
+@ops.RegisterShape("Multinomial")
+def _MultinomialShape(op):  # pylint: disable=invalid-name
+  logits_shape = op.inputs[0].get_shape().with_rank(2)
+  batch_size = logits_shape[0]
+  num_samples_or_none = tensor_util.constant_value(op.inputs[1])
+  return [tensor_shape.matrix(batch_size, num_samples_or_none)]
+
+
+ops.NoGradient("Multinomial")
+
+
 ops.NoGradient("RandomUniform")
 
 
@@ -217,12 +300,12 @@ ops.NoGradient("RandomUniform")
 @ops.RegisterShape("RandomUniform")
 @ops.RegisterShape("RandomUniformInt")
 def _RandomShape(op):
-  shape_val = tensor_util.ConstantValue(op.inputs[0])
+  shape_val = tensor_util.constant_value(op.inputs[0])
   if shape_val is not None:
-    return [tensor_shape.TensorShape(shape_val.tolist())]
+    return [tensor_shape.TensorShape(shape_val)]
   else:
-    shape_shape = op.inputs[0].get_shape().with_rank_at_most(1)
-    return [tensor_shape.unknown_shape(ndims=shape_shape.num_elements())]
+    shape_shape = op.inputs[0].get_shape().with_rank(1)
+    return [tensor_shape.unknown_shape(ndims=shape_shape[0].value)]
 
 
 ops.RegisterShape("RandomShuffle")(common_shapes.unchanged_shape)

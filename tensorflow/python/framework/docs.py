@@ -15,9 +15,9 @@
 
 """Updates generated docs from Python doc comments.
 
-Both updates the files in the file-system and executes g4 commands to
-make sure any changes are ready to be submitted.
+Updates the documentation files.
 """
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -33,6 +33,7 @@ _section_re = re.compile("([A-Z][a-zA-Z ]*):$")
 _always_drop_symbol_re = re.compile("_[_a-zA-Z0-9]")
 _anchor_re = re.compile(r"^[\w.]+$")
 _member_mark = "@@"
+_indiv_dir = "functions_and_classes"
 
 
 class Document(object):
@@ -98,21 +99,27 @@ class Index(Document):
           print("  * %s" % link, file=f)
         print("", file=f)
 
-def collect_members(module_to_name):
+
+def collect_members(module_to_name, exclude=()):
   """Collect all symbols from a list of modules.
 
   Args:
     module_to_name: Dictionary mapping modules to short names.
+    exclude: Set of fully qualified names to exclude.
 
   Returns:
     Dictionary mapping name to (fullname, member) pairs.
   """
   members = {}
   for module, module_name in module_to_name.items():
+    all_names = getattr(module, "__all__", None)
     for name, member in inspect.getmembers(module):
       if ((inspect.isfunction(member) or inspect.isclass(member)) and
-          not _always_drop_symbol_re.match(name)):
+          not _always_drop_symbol_re.match(name) and
+          (all_names is None or name in all_names)):
         fullname = '%s.%s' % (module_name, name)
+        if fullname in exclude:
+          continue
         if name in members:
           other_fullname, other_member = members[name]
           if member is not other_member:
@@ -121,7 +128,7 @@ def collect_members(module_to_name):
           if len(fullname) == len(other_fullname):
             raise RuntimeError("Can't decide whether to use %s or %s for %s: "
                                "both full names have length %d" %
-                               (fullname, other_fullname, len(fullname)))
+                               (fullname, other_fullname, name, len(fullname)))
           if len(fullname) > len(other_fullname):
             continue  # Use the shorter full name
         members[name] = fullname, member
@@ -241,6 +248,15 @@ class Library(Document):
           or self._should_include_member(name, member)):
         yield name, ("%s.%s" % (cls_name, name), member)
 
+  def set_functions_and_classes_dir(self, dirname):
+    """Sets the name of the directory for function and class markdown files.
+
+    Args:
+      dirname: string. The name of the directory in which to store function
+        and class markdown files.
+    """
+    self.functions_and_classes_dir = dirname
+
   def _generate_signature_for_function(self, func):
     """Given a function, returns a string representing its args."""
     args_list = []
@@ -264,7 +280,10 @@ class Library(Document):
     if argspec.defaults:
       for arg, default in zip(
           argspec.args[first_arg_with_default:], argspec.defaults):
-        args_list.append("%s=%r" % (arg, default))
+        if callable(default):
+          args_list.append("%s=%s" % (arg, default.__name__))
+        else:
+          args_list.append("%s=%r" % (arg, default))
     if argspec.varargs:
       args_list.append("*" + argspec.varargs)
     if argspec.keywords:
@@ -375,6 +394,12 @@ class Library(Document):
       print("", file=f)
       self._print_function(f, prefix, name, member)
       print("", file=f)
+
+      # Write an individual file for each function.
+      if inspect.isfunction(member):
+        indivf = open(
+            os.path.join(self.functions_and_classes_dir, name + ".md"), "w+")
+        self._print_function(indivf, prefix, name, member)
     elif inspect.isclass(member):
       print("- - -", file=f)
       print("", file=f)
@@ -384,6 +409,11 @@ class Library(Document):
       print("", file=f)
       self._write_class_markdown_to_file(f, name, member)
       print("", file=f)
+
+      # Write an individual file for each class.
+      indivf = open(
+          os.path.join(self.functions_and_classes_dir, name + ".md"), "w+")
+      self._write_class_markdown_to_file(indivf, name, member)
     else:
       raise RuntimeError("Member %s has unknown type %s" % (name, type(member)))
 
@@ -405,7 +435,7 @@ class Library(Document):
         print(l, file=f)
 
   def _write_class_markdown_to_file(self, f, name, cls):
-    """Write the class doc to 'f'.
+    """Write the class doc to `f`.
 
     Args:
       f: File to write to.
@@ -478,6 +508,9 @@ class Library(Document):
       names = self._members.items()
     else:
       names = inspect.getmembers(self._module)
+      all_names = getattr(self._module, "__all__", None)
+      if all_names is not None:
+        names = [(n, m) for n, m in names if n in all_names]
     leftovers = []
     for name, _ in names:
       if name in self._members and name not in self._documented:
@@ -510,8 +543,16 @@ def write_libraries(dir, libraries):
     libraries: List of (filename, library) pairs.
   """
   files = [open(os.path.join(dir, k), "w") for k, _ in libraries]
+
+  # Set the directory in which to save individual class and function md files,
+  # creating it if it doesn't exist.
+  indiv_dir = os.path.join(dir, _indiv_dir)
+  if not os.path.exists(indiv_dir):
+    os.makedirs(indiv_dir)
+
   # Document mentioned symbols for all libraries
   for f, (_, v) in zip(files, libraries):
+    v.set_functions_and_classes_dir(indiv_dir)
     v.write_markdown_to_file(f)
   # Document symbols that no library mentioned.  We do this after writing
   # out all libraries so that earlier libraries know what later libraries

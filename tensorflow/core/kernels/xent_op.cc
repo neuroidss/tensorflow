@@ -17,11 +17,11 @@ limitations under the License.
 
 #define EIGEN_USE_THREADS
 
-#include "tensorflow/core/framework/op_kernel.h"
-#include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
 #include "tensorflow/core/kernels/xent_op.h"
-#include "tensorflow/core/public/tensor.h"
-#include "tensorflow/core/public/tensor_shape.h"
+#include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
+#include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/tensor_shape.h"
 
 namespace tensorflow {
 
@@ -88,6 +88,10 @@ struct XentFunctor<CPUDevice, T> {
 
 REGISTER_KERNEL_BUILDER(Name("SoftmaxCrossEntropyWithLogits")
                             .Device(DEVICE_CPU)
+                            .TypeConstraint<Eigen::half>("T"),
+                        SoftmaxXentWithLogitsOp<CPUDevice, Eigen::half>);
+REGISTER_KERNEL_BUILDER(Name("SoftmaxCrossEntropyWithLogits")
+                            .Device(DEVICE_CPU)
                             .TypeConstraint<float>("T"),
                         SoftmaxXentWithLogitsOp<CPUDevice, float>);
 REGISTER_KERNEL_BUILDER(Name("SoftmaxCrossEntropyWithLogits")
@@ -96,6 +100,10 @@ REGISTER_KERNEL_BUILDER(Name("SoftmaxCrossEntropyWithLogits")
                         SoftmaxXentWithLogitsOp<CPUDevice, double>);
 
 #if GOOGLE_CUDA
+REGISTER_KERNEL_BUILDER(Name("SoftmaxCrossEntropyWithLogits")
+                            .Device(DEVICE_GPU)
+                            .TypeConstraint<Eigen::half>("T"),
+                        SoftmaxXentWithLogitsOp<GPUDevice, Eigen::half>);
 REGISTER_KERNEL_BUILDER(Name("SoftmaxCrossEntropyWithLogits")
                             .Device(DEVICE_GPU)
                             .TypeConstraint<float>("T"),

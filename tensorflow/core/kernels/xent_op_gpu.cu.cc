@@ -20,7 +20,7 @@ limitations under the License.
 #include "tensorflow/core/kernels/xent_op.h"
 
 #include "tensorflow/core/framework/tensor_types.h"
-#include "tensorflow/core/platform/port.h"
+#include "tensorflow/core/platform/types.h"
 
 namespace tensorflow {
 
@@ -42,7 +42,8 @@ struct XentFunctor<GPUDevice, T> {
 };
 }  // end namespace functor
 
-// Instantiate the GPU implementation for float.
+// Instantiate the GPU implementation for half and float.
+template struct functor::XentFunctor<GPUDevice, Eigen::half>;
 template struct functor::XentFunctor<GPUDevice, float>;
 
 }  // end namespace tensorflow
